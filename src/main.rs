@@ -24,23 +24,32 @@ type Cache = HashMap<String, Chunk>;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: plainionmetis <markdown-folder> <idea>");
+        eprintln!(
+            "Usage:\n\
+            plainionmetis <notes-folder> <idea>\n\
+            plainionmetis explore <notes-folder> <topic>"
+        );
         std::process::exit(1);
     }
 
-    let notes_dir = &args[1];
-    let idea = &args[2..].join(" "); // remaining args build the idea
+    let mode = &args[1];
+    match mode.as_str() {
+        "explore" => explore_mode(&args[2], &args[3..].join(" ")),
+        _ => query_mode(&args[1], &args[2..].join(" ")),
+    }
+}
 
+fn query_mode(notes_dir: &str, idea: &str) {
     let raw_chunks = collect_markdown_chunks(notes_dir, 400);
     println!("Loaded chunks: {}", raw_chunks.len());
 
-    let cache_path  = Path::new(notes_dir).join("plainionmetis-cache.json");
-    let mut cache: HashMap<String, Chunk> = if cache_path .exists() {
+    let cache_path = Path::new(notes_dir).join("plainionmetis-cache.json");
+    let mut cache: HashMap<String, Chunk> = if cache_path.exists() {
         load_cache(&cache_path)
     } else {
         HashMap::new()
     };
-    
+
     let mut embedded_chunks = vec![];
 
     for (text, file_path) in raw_chunks {
@@ -60,7 +69,7 @@ fn main() {
         }
     }
 
-    save_cache(&cache_path , &cache);
+    save_cache(&cache_path, &cache);
     println!("Embedded chunks: {}", embedded_chunks.len());
 
     let query_embedding = embed_text(idea).expect("Failed to embed idea text");
@@ -205,4 +214,60 @@ fn ask_ollama(prompt: &str) -> String {
         .as_str()
         .unwrap_or("[No response]")
         .to_string()
+}
+
+fn explore_mode(notes_dir: &str, topic: &str) {
+    println!("Exploring topic: '{}'", topic);
+
+    let raw_chunks = collect_markdown_chunks(notes_dir, 400);
+    let cache_path = Path::new(notes_dir).join("plainionmetis-cache.json");
+    let mut cache = if cache_path.exists() {
+        load_cache(&cache_path)
+    } else {
+        HashMap::new()
+    };
+
+    let mut embedded_chunks = vec![];
+
+    for (text, file_path) in raw_chunks {
+        let hash = hash_chunk(&text, &file_path);
+        if let Some(cached) = cache.get(&hash) {
+            embedded_chunks.push(cached.clone());
+        } else if let Some(embedding) = embed_text(&text) {
+            let chunk = Chunk {
+                text: text.clone(),
+                embedding: embedding.clone(),
+                file_path: file_path.clone(),
+            };
+
+            cache.insert(hash.clone(), chunk.clone());
+            embedded_chunks.push(chunk);
+        }
+    }
+    save_cache(&cache_path, &cache);
+
+    println!("Embedded chunks loaded: {}", embedded_chunks.len());
+
+    let topic_embedding = embed_text(topic).expect("Failed to embed topic");
+
+    let top_chunks = find_similar_chunks(&embedded_chunks, &topic_embedding, 10);
+    println!("Top matching ideas related to '{}':\n", topic);
+
+    for (i, chunk) in top_chunks.iter().enumerate() {
+        println!("{}. {}", i + 1, chunk.file_path);
+    }
+
+    let joined = top_chunks
+        .iter()
+        .map(|c| format!("• {}", c.text))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let prompt = format!(
+        "Based on the following notes, summarize what I think or understand about '{}':\n\n{}",
+        topic, joined
+    );
+
+    let summary = ask_ollama(&prompt);
+    println!("\n🧠 >\n{}", summary);
 }
