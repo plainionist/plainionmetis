@@ -1,20 +1,25 @@
 use reqwest::blocking::Client;
 use serde_json::json;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::path::Path;
 use std::{env, fs};
 use walkdir::WalkDir;
-
-#[derive(Debug, Clone)]
-struct Chunk {
-    file_path: String,
-    text: String,
-    embedding: Vec<f32>,
-}
 
 // prepare:
 // - "ollama pull phi3:mini"
 // - "ollama pull nomic-embed-text"
 // then run "ollama run phi3:mini"
 // then run this program
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Chunk {
+    embedding: Vec<f32>,
+    text: String,
+    file_path: String,
+}
+
+type Cache = HashMap<String, Chunk>;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -26,21 +31,37 @@ fn main() {
     let notes_dir = &args[1];
     let idea = &args[2..].join(" "); // remaining args build the idea
 
-    let chunks = collect_markdown_chunks(notes_dir, 400);
-    println!("Loaded chunks: {}", chunks.len());
+    let raw_chunks = collect_markdown_chunks(notes_dir, 400);
+    println!("Loaded chunks: {}", raw_chunks.len());
 
-    let embedded_chunks: Vec<Chunk> = chunks
-        .into_iter()
-        .filter_map(|(text, file_path)| {
-            embed_text(&text).map(|embedding| Chunk {
-                text,
-                embedding,
-                file_path,
-            })
-        })
-        .collect();
+    let cache_path  = Path::new(notes_dir).join("plainionmetis-cache.json");
+    let mut cache: HashMap<String, Chunk> = if cache_path .exists() {
+        load_cache(&cache_path)
+    } else {
+        HashMap::new()
+    };
+    
+    let mut embedded_chunks = vec![];
 
-    println!("🧠 Embedded chunks: {}", embedded_chunks.len());
+    for (text, file_path) in raw_chunks {
+        let hash = hash_chunk(&text, &file_path);
+
+        if let Some(cached) = cache.get(&hash) {
+            embedded_chunks.push(cached.clone());
+        } else if let Some(embedding) = embed_text(&text) {
+            let chunk = Chunk {
+                text: text.clone(),
+                embedding: embedding.clone(),
+                file_path: file_path.clone(),
+            };
+
+            cache.insert(hash, chunk.clone());
+            embedded_chunks.push(chunk);
+        }
+    }
+
+    save_cache(&cache_path , &cache);
+    println!("Embedded chunks: {}", embedded_chunks.len());
 
     let query_embedding = embed_text(idea).expect("Failed to embed idea text");
 
@@ -66,6 +87,13 @@ fn main() {
     println!("\n🧠 >\n{}", result);
 }
 
+fn hash_chunk(text: &str, file_path: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    hasher.update(file_path.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 fn collect_markdown_chunks(base_path: &str, max_words: usize) -> Vec<(String, String)> {
     let mut chunks = vec![];
 
@@ -84,6 +112,19 @@ fn collect_markdown_chunks(base_path: &str, max_words: usize) -> Vec<(String, St
     }
 
     chunks
+}
+
+fn load_cache(path: &Path) -> Cache {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|data| serde_json::from_str(&data).ok())
+        .unwrap_or_default()
+}
+
+fn save_cache(path: &Path, cache: &Cache) {
+    if let Ok(json) = serde_json::to_string_pretty(cache) {
+        let _ = fs::write(path, json);
+    }
 }
 
 fn chunk_text(text: &str, max_words: usize) -> Vec<String> {
