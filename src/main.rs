@@ -2,10 +2,9 @@ use rand::{seq::SliceRandom, thread_rng};
 use std::env;
 use std::io::{self, Write};
 
-mod chunking;
-mod config;
-mod ollama;
-use chunking::Chunk;
+mod utils;
+use utils::{config, chunking, ollama};
+use utils::chunking::Chunk;
 
 // prepare:
 // - "ollama pull phi3:mini"
