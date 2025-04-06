@@ -1,3 +1,4 @@
+use rand::{seq::SliceRandom, thread_rng};
 use reqwest::blocking::Client;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -5,7 +6,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::{env, fs};
 use walkdir::WalkDir;
-use rand::{seq::SliceRandom, thread_rng};
 
 // prepare:
 // - "ollama pull phi3:mini"
@@ -20,7 +20,23 @@ struct Chunk {
     file_path: String,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct Config {
+    config: InnerConfig,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InnerConfig {
+    cache_file: String,
+    content_paths: Vec<String>,
+}
+
 type Cache = HashMap<String, Chunk>;
+
+fn load_config(path: &str) -> Config {
+    let contents = fs::read_to_string(path).expect("Failed to read config file");
+    toml::from_str(&contents).expect("Failed to parse config file")
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -37,18 +53,24 @@ fn main() {
     match mode.as_str() {
         "explore" => explore_mode(&args[2], &args[3..].join(" ")),
         "cluster" => {
-            let num_clusters = args.get(3).and_then(|s| s.parse::<usize>().ok()).unwrap_or(5);
+            let num_clusters = args
+                .get(3)
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(5);
             cluster_mode(&args[2], num_clusters);
         }
         _ => query_mode(&args[1], &args[2..].join(" ")),
     }
-    }
+}
 
-fn query_mode(notes_dir: &str, idea: &str) {
-    let raw_chunks = collect_markdown_chunks(notes_dir, 400);
+fn query_mode(config_file_path: &str, idea: &str) {
+    let config = load_config(config_file_path); // use config file path now
+    let cache_path = Path::new(&config.config.cache_file);
+    let content_paths = &config.config.content_paths;
+
+    let raw_chunks = collect_markdown_chunks(content_paths, 400);
     println!("Loaded chunks: {}", raw_chunks.len());
 
-    let cache_path = Path::new(notes_dir).join("plainionmetis-cache.json");
     let mut cache: HashMap<String, Chunk> = if cache_path.exists() {
         load_cache(&cache_path)
     } else {
@@ -108,23 +130,25 @@ fn hash_chunk(text: &str, file_path: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn collect_markdown_chunks(base_path: &str, max_words: usize) -> Vec<(String, String)> {
+fn collect_markdown_chunks(paths: &[String], max_words: usize) -> Vec<(String, String)> {
     let mut chunks = vec![];
 
-    for entry in WalkDir::new(base_path)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
-    {
-        if let Ok(content) = fs::read_to_string(entry.path()) {
-            let chunked = chunk_text(&content, max_words);
-            let path_str = entry.path().display().to_string();
-            for chunk in chunked {
-                chunks.push((chunk, path_str.clone()));
+    for base_path in paths {
+        for entry in WalkDir::new(base_path)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
+        {
+            if let Ok(content) = fs::read_to_string(entry.path()) {
+                let chunked = chunk_text(&content, max_words);
+                let path_str = entry.path().display().to_string();
+                for chunk in chunked {
+                    chunks.push((chunk, path_str.clone()));
+                }
             }
         }
     }
-
+    
     chunks
 }
 
@@ -221,11 +245,14 @@ fn ask_ollama(prompt: &str) -> String {
         .to_string()
 }
 
-fn explore_mode(notes_dir: &str, topic: &str) {
+fn explore_mode(config_file_path: &str, topic: &str) {
     println!("Exploring topic: '{}'", topic);
 
-    let raw_chunks = collect_markdown_chunks(notes_dir, 400);
-    let cache_path = Path::new(notes_dir).join("plainionmetis-cache.json");
+    let config = load_config(config_file_path); // use config file path now
+    let cache_path = Path::new(&config.config.cache_file);
+    let content_paths = &config.config.content_paths;
+
+    let raw_chunks = collect_markdown_chunks(content_paths, 400);
     let mut cache = if cache_path.exists() {
         load_cache(&cache_path)
     } else {
@@ -277,11 +304,14 @@ fn explore_mode(notes_dir: &str, topic: &str) {
     println!("\n🧠 >\n{}", summary);
 }
 
-fn cluster_mode(notes_dir: &str, k: usize) {
-    println!("Clustering ideas from: {}", notes_dir);
+fn cluster_mode(config_file_path: &str, k: usize) {
+    let config = load_config(config_file_path); // use config file path now
+    let cache_path = Path::new(&config.config.cache_file);
+    let content_paths = &config.config.content_paths;
 
-    let raw_chunks = collect_markdown_chunks(notes_dir, 400);
-    let cache_path = Path::new(notes_dir).join("plainionmetis-cache.json");
+    println!("Clustering ideas from");
+
+    let raw_chunks = collect_markdown_chunks(content_paths, 400);
     let mut cache = if cache_path.exists() {
         load_cache(&cache_path)
     } else {
