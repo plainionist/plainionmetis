@@ -148,7 +148,7 @@ fn collect_markdown_chunks(paths: &[String], max_words: usize) -> Vec<(String, S
             }
         }
     }
-    
+
     chunks
 }
 
@@ -398,9 +398,28 @@ fn cluster_mode(config_file_path: &str, k: usize) {
     println!("\nClustered into {} groups:\n", k);
 
     for (i, group) in clusters.iter().enumerate() {
-        println!("Cluster {} ({} items)", i + 1, group.len());
+        let sample = group
+            .iter()
+            .take(5)
+            .map(|c| format!("- {}", c.text))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let label_prompt = format!(
+            "Here are some notes:\n\n{}\n\nWhat common theme or topic do they share? Respond with just a short label.",
+            sample
+        );
+
+        let label = ask_ollama(&label_prompt);
+
+        println!(
+            "Cluster {} - {}\n{} items",
+            i + 1,
+            label.trim(),
+            group.len()
+        );
         for chunk in group.iter().take(5) {
-            println!("• {}", chunk.file_path);
+            println!("•  {}", chunk.file_path);
         }
         println!();
     }
