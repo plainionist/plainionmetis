@@ -8,21 +8,28 @@ pub fn run(config: &Config) {
     let chunks = chunking::load(&config);
 
     loop {
-        print!("\nYou: ");
-        io::stdout().flush().unwrap();
+        let question = match read_user_input() {
+            Some(q) => q,
+            None => continue,
+        };
 
-        let mut question = String::new();
-        if io::stdin().read_line(&mut question).is_err() {
-            break;
-        }
-
-        let question = question.trim();
-        if question.is_empty() {
-            continue;
-        }
-
-        let response = ask(&chunks, question);
+        let response = ask(&chunks, &question);
         println!("\n🧠 >\n{}", response);
+    }
+}
+
+fn read_user_input() -> Option<String> {
+    print!("\nYou: ");
+    io::stdout().flush().ok()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).ok()?;
+    let trimmed = input.trim();
+
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }
 
