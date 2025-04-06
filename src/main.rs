@@ -3,6 +3,7 @@ use reqwest::blocking::Client;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::io::{self, Write};
 use std::path::Path;
 use std::{env, fs};
 use walkdir::WalkDir;
@@ -62,7 +63,7 @@ fn main() {
         "chat" => {
             let config_path = &args[2];
             chat_mode(config_path);
-        },
+        }
         _ => query_mode(&args[1], &args[2..].join(" ")),
     }
 }
@@ -72,36 +73,7 @@ fn query_mode(config_file_path: &str, idea: &str) {
     let cache_path = Path::new(&config.config.cache_file);
     let content_paths = &config.config.content_paths;
 
-    let raw_chunks = collect_markdown_chunks(content_paths, 400);
-    println!("Loaded chunks: {}", raw_chunks.len());
-
-    let mut cache: HashMap<String, Chunk> = if cache_path.exists() {
-        load_cache(&cache_path)
-    } else {
-        HashMap::new()
-    };
-
-    let mut embedded_chunks = vec![];
-
-    for (text, file_path) in raw_chunks {
-        let hash = hash_chunk(&text, &file_path);
-
-        if let Some(cached) = cache.get(&hash) {
-            embedded_chunks.push(cached.clone());
-        } else if let Some(embedding) = embed_text(&text) {
-            let chunk = Chunk {
-                text: text.clone(),
-                embedding: embedding.clone(),
-                file_path: file_path.clone(),
-            };
-
-            cache.insert(hash, chunk.clone());
-            embedded_chunks.push(chunk);
-        }
-    }
-
-    save_cache(&cache_path, &cache);
-    println!("Embedded chunks: {}", embedded_chunks.len());
+    let embedded_chunks = load_embedded_chunks(cache_path, content_paths);
 
     let query_embedding = embed_text(idea).expect("Failed to embed idea text");
 
@@ -256,33 +228,7 @@ fn explore_mode(config_file_path: &str, topic: &str) {
     let cache_path = Path::new(&config.config.cache_file);
     let content_paths = &config.config.content_paths;
 
-    let raw_chunks = collect_markdown_chunks(content_paths, 400);
-    let mut cache = if cache_path.exists() {
-        load_cache(&cache_path)
-    } else {
-        HashMap::new()
-    };
-
-    let mut embedded_chunks = vec![];
-
-    for (text, file_path) in raw_chunks {
-        let hash = hash_chunk(&text, &file_path);
-        if let Some(cached) = cache.get(&hash) {
-            embedded_chunks.push(cached.clone());
-        } else if let Some(embedding) = embed_text(&text) {
-            let chunk = Chunk {
-                text: text.clone(),
-                embedding: embedding.clone(),
-                file_path: file_path.clone(),
-            };
-
-            cache.insert(hash.clone(), chunk.clone());
-            embedded_chunks.push(chunk);
-        }
-    }
-    save_cache(&cache_path, &cache);
-
-    println!("Embedded chunks loaded: {}", embedded_chunks.len());
+    let embedded_chunks = load_embedded_chunks(cache_path, content_paths);
 
     let topic_embedding = embed_text(topic).expect("Failed to embed topic");
 
@@ -315,33 +261,7 @@ fn cluster_mode(config_file_path: &str, k: usize) {
 
     println!("Clustering ideas from");
 
-    let raw_chunks = collect_markdown_chunks(content_paths, 400);
-    let mut cache = if cache_path.exists() {
-        load_cache(&cache_path)
-    } else {
-        HashMap::new()
-    };
-
-    let mut embedded_chunks = vec![];
-
-    for (text, file_path) in raw_chunks {
-        let hash = hash_chunk(&text, &file_path);
-        if let Some(cached) = cache.get(&hash) {
-            embedded_chunks.push(cached.clone());
-        } else if let Some(embedding) = embed_text(&text) {
-            let chunk = Chunk {
-                text: text.clone(),
-                embedding: embedding.clone(),
-                file_path: file_path.clone(),
-            };
-            cache.insert(hash.clone(), chunk.clone());
-            embedded_chunks.push(chunk);
-        }
-    }
-
-    save_cache(&cache_path, &cache);
-
-    println!("Embedded {} chunks", embedded_chunks.len());
+    let embedded_chunks = load_embedded_chunks(cache_path, content_paths);
 
     // K-means lite: randomly pick k initial centers
     let mut rng = thread_rng();
@@ -436,34 +356,7 @@ fn chat_mode(config_path: &str) {
     let cache_path = Path::new(&config.config.cache_file);
     let content_paths = &config.config.content_paths;
 
-    let raw_chunks = collect_markdown_chunks(content_paths, 400);
-
-    let mut cache = if cache_path.exists() {
-        load_cache(&cache_path)
-    } else {
-        HashMap::new()
-    };
-
-    let mut embedded_chunks = vec![];
-
-    for (text, file_path) in raw_chunks {
-        let hash = hash_chunk(&text, &file_path);
-        if let Some(cached) = cache.get(&hash) {
-            embedded_chunks.push(cached.clone());
-        } else if let Some(embedding) = embed_text(&text) {
-            let chunk = Chunk {
-                text: text.clone(),
-                embedding: embedding.clone(),
-                file_path: file_path.clone(),
-            };
-            cache.insert(hash.clone(), chunk.clone());
-            embedded_chunks.push(chunk);
-        }
-    }
-
-    save_cache(&cache_path, &cache);
-
-    use std::io::{self, Write};
+    let embedded_chunks = load_embedded_chunks(cache_path, content_paths);
 
     loop {
         print!("\n❓ You: ");
@@ -493,12 +386,49 @@ fn chat_mode(config_path: &str) {
 
         let prompt = format!(
             "Answer the following question based on my notes below.\n\
-            If not enough info is present, say so.\n\n\
-            Notes:\n{}\n\nQuestion: {}\n\nAnswer:",
+        If not enough info is present, say so.\n\n\
+        Notes:\n{}\n\nQuestion: {}\n\nAnswer:",
             context, question
         );
 
         let response = ask_ollama(&prompt);
         println!("\n🧠 {}", response.trim());
     }
+}
+
+fn load_embedded_chunks(cache_path: &Path, content_paths: &Vec<String>) -> Vec<Chunk> {
+    let raw_chunks = collect_markdown_chunks(content_paths, 400);
+
+    println!("Loaded chunks: {}", raw_chunks.len());
+
+    let mut cache: HashMap<String, Chunk> = if cache_path.exists() {
+        load_cache(&cache_path)
+    } else {
+        HashMap::new()
+    };
+
+    let mut embedded_chunks = vec![];
+
+    for (text, file_path) in raw_chunks {
+        let hash = hash_chunk(&text, &file_path);
+
+        if let Some(cached) = cache.get(&hash) {
+            embedded_chunks.push(cached.clone());
+        } else if let Some(embedding) = embed_text(&text) {
+            let chunk = Chunk {
+                text: text.clone(),
+                embedding: embedding.clone(),
+                file_path: file_path.clone(),
+            };
+
+            cache.insert(hash, chunk.clone());
+            embedded_chunks.push(chunk);
+        }
+    }
+
+    save_cache(&cache_path, &cache);
+
+    println!("Embedded chunks: {}", embedded_chunks.len());
+
+    embedded_chunks
 }
