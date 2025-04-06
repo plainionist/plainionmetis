@@ -70,10 +70,8 @@ fn main() {
 
 fn query_mode(config_file_path: &str, idea: &str) {
     let config = load_config(config_file_path); // use config file path now
-    let cache_path = Path::new(&config.config.cache_file);
-    let content_paths = &config.config.content_paths;
 
-    let embedded_chunks = load_embedded_chunks(cache_path, content_paths);
+    let embedded_chunks = load_embedded_chunks(&config);
 
     let query_embedding = embed_text(idea).expect("Failed to embed idea text");
 
@@ -224,11 +222,9 @@ fn ask_ollama(prompt: &str) -> String {
 fn explore_mode(config_file_path: &str, topic: &str) {
     println!("Exploring topic: '{}'", topic);
 
-    let config = load_config(config_file_path); // use config file path now
-    let cache_path = Path::new(&config.config.cache_file);
-    let content_paths = &config.config.content_paths;
+    let config = load_config(config_file_path);
 
-    let embedded_chunks = load_embedded_chunks(cache_path, content_paths);
+    let embedded_chunks = load_embedded_chunks(&config);
 
     let topic_embedding = embed_text(topic).expect("Failed to embed topic");
 
@@ -255,13 +251,10 @@ fn explore_mode(config_file_path: &str, topic: &str) {
 }
 
 fn cluster_mode(config_file_path: &str, k: usize) {
-    let config = load_config(config_file_path); // use config file path now
-    let cache_path = Path::new(&config.config.cache_file);
-    let content_paths = &config.config.content_paths;
+    println!("Clustering ideas");
 
-    println!("Clustering ideas from");
-
-    let embedded_chunks = load_embedded_chunks(cache_path, content_paths);
+    let config = load_config(config_file_path);
+    let embedded_chunks = load_embedded_chunks(&config);
 
     // K-means lite: randomly pick k initial centers
     let mut rng = thread_rng();
@@ -350,16 +343,13 @@ fn cluster_mode(config_file_path: &str, k: usize) {
 }
 
 fn chat_mode(config_path: &str) {
-    println!("💬 Chat mode started. Ask your brain anything. Ctrl+C to quit.\n");
+    println!("Chat mode started. Ask your brain anything. Ctrl+C to quit.\n");
 
     let config = load_config(config_path);
-    let cache_path = Path::new(&config.config.cache_file);
-    let content_paths = &config.config.content_paths;
-
-    let embedded_chunks = load_embedded_chunks(cache_path, content_paths);
+    let embedded_chunks = load_embedded_chunks(&config);
 
     loop {
-        print!("\n❓ You: ");
+        print!("\nYou: ");
         io::stdout().flush().unwrap();
         let mut question = String::new();
         if io::stdin().read_line(&mut question).is_err() {
@@ -372,7 +362,7 @@ fn chat_mode(config_path: &str) {
 
         let q_embedding = embed_text(question);
         if q_embedding.is_none() {
-            println!("⚠️ Could not embed question.");
+            println!("Could not embed question.");
             continue;
         }
         let q_embedding = q_embedding.unwrap();
@@ -396,7 +386,10 @@ fn chat_mode(config_path: &str) {
     }
 }
 
-fn load_embedded_chunks(cache_path: &Path, content_paths: &Vec<String>) -> Vec<Chunk> {
+fn load_embedded_chunks(config: &Config) -> Vec<Chunk> {
+    let cache_path = Path::new(&config.config.cache_file);
+    let content_paths = &config.config.content_paths;
+
     let raw_chunks = collect_markdown_chunks(content_paths, 400);
 
     println!("Loaded chunks: {}", raw_chunks.len());
