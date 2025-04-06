@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::{env, fs};
 use walkdir::WalkDir;
+use rand::{seq::SliceRandom, thread_rng};
 
 // prepare:
 // - "ollama pull phi3:mini"
@@ -35,9 +36,13 @@ fn main() {
     let mode = &args[1];
     match mode.as_str() {
         "explore" => explore_mode(&args[2], &args[3..].join(" ")),
+        "cluster" => {
+            let num_clusters = args.get(3).and_then(|s| s.parse::<usize>().ok()).unwrap_or(5);
+            cluster_mode(&args[2], num_clusters);
+        }
         _ => query_mode(&args[1], &args[2..].join(" ")),
     }
-}
+    }
 
 fn query_mode(notes_dir: &str, idea: &str) {
     let raw_chunks = collect_markdown_chunks(notes_dir, 400);
@@ -270,4 +275,103 @@ fn explore_mode(notes_dir: &str, topic: &str) {
 
     let summary = ask_ollama(&prompt);
     println!("\n🧠 >\n{}", summary);
+}
+
+fn cluster_mode(notes_dir: &str, k: usize) {
+    println!("Clustering ideas from: {}", notes_dir);
+
+    let raw_chunks = collect_markdown_chunks(notes_dir, 400);
+    let cache_path = Path::new(notes_dir).join("plainionmetis-cache.json");
+    let mut cache = if cache_path.exists() {
+        load_cache(&cache_path)
+    } else {
+        HashMap::new()
+    };
+
+    let mut embedded_chunks = vec![];
+
+    for (text, file_path) in raw_chunks {
+        let hash = hash_chunk(&text, &file_path);
+        if let Some(cached) = cache.get(&hash) {
+            embedded_chunks.push(cached.clone());
+        } else if let Some(embedding) = embed_text(&text) {
+            let chunk = Chunk {
+                text: text.clone(),
+                embedding: embedding.clone(),
+                file_path: file_path.clone(),
+            };
+            cache.insert(hash.clone(), chunk.clone());
+            embedded_chunks.push(chunk);
+        }
+    }
+
+    save_cache(&cache_path, &cache);
+
+    println!("Embedded {} chunks", embedded_chunks.len());
+
+    // K-means lite: randomly pick k initial centers
+    let mut rng = thread_rng();
+    let mut centroids: Vec<Vec<f32>> = embedded_chunks
+        .choose_multiple(&mut rng, k)
+        .map(|c| c.embedding.clone())
+        .collect();
+
+    let mut assignments: Vec<usize> = vec![0; embedded_chunks.len()];
+
+    // Iterative refinement (just a few steps)
+    for _ in 0..5 {
+        // Assign
+        for (i, chunk) in embedded_chunks.iter().enumerate() {
+            let best = centroids
+                .iter()
+                .enumerate()
+                .map(|(j, c)| (j, cosine_similarity(&chunk.embedding, c).unwrap_or(-1.0)))
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .map(|(j, _)| j)
+                .unwrap_or(0);
+            assignments[i] = best;
+        }
+
+        // Recompute centroids
+        for i in 0..k {
+            let members: Vec<&Vec<f32>> = embedded_chunks
+                .iter()
+                .zip(&assignments)
+                .filter(|(_, &a)| a == i)
+                .map(|(c, _)| &c.embedding)
+                .collect();
+
+            if members.is_empty() {
+                continue;
+            }
+
+            let mut new_centroid = vec![0.0; members[0].len()];
+            for vec in &members {
+                for (i, val) in vec.iter().enumerate() {
+                    new_centroid[i] += val;
+                }
+            }
+            for val in &mut new_centroid {
+                *val /= members.len() as f32;
+            }
+
+            centroids[i] = new_centroid;
+        }
+    }
+
+    // Group by cluster
+    let mut clusters: Vec<Vec<&Chunk>> = vec![vec![]; k];
+    for (chunk, &cluster_idx) in embedded_chunks.iter().zip(&assignments) {
+        clusters[cluster_idx].push(chunk);
+    }
+
+    println!("\nClustered into {} groups:\n", k);
+
+    for (i, group) in clusters.iter().enumerate() {
+        println!("Cluster {} ({} items)", i + 1, group.len());
+        for chunk in group.iter().take(5) {
+            println!("• {}", chunk.file_path);
+        }
+        println!();
+    }
 }
