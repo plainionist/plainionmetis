@@ -1,7 +1,7 @@
 use crate::utils::{chunking, config, ollama, similarity};
 
 pub fn run(config_file_path: &str, idea: &str) {
-    let config = config::load(config_file_path); // use config file path now
+    let config = config::load(config_file_path);
 
     let embedded_chunks = chunking::load(&config);
 
@@ -25,6 +25,6 @@ pub fn run(config_file_path: &str, idea: &str) {
         joined
     );
 
-    let result = ollama::ask(&prompt);
-    println!("\n🧠 >\n{}", result);
+    let response = ollama::ask(&prompt);
+    println!("\n🧠 >\n{}", response);
 }

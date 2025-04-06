@@ -42,6 +42,6 @@ pub fn run(config_path: &str) {
         );
 
         let response = ollama::ask(&prompt);
-        println!("\n🧠 {}", response.trim());
+        println!("\n🧠 >\n{}", response);
     }
 }

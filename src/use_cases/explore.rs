@@ -28,6 +28,6 @@ pub fn run(config_file_path: &str, topic: &str) {
         topic, joined
     );
 
-    let summary = ollama::ask(&prompt);
-    println!("\n🧠 >\n{}", summary);
+    let response = ollama::ask(&prompt);
+    println!("\n🧠 >\n{}", response);
 }

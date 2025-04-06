@@ -23,8 +23,8 @@ fn main() {
         std::process::exit(1);
     }
 
-    let mode = &args[1];
-    match mode.as_str() {
+    let cmd = &args[1];
+    match cmd.as_str() {
         "explore" => explore::run(&args[2], &args[3..].join(" ")),
         "cluster" => {
             let num_clusters = args
@@ -39,7 +39,7 @@ fn main() {
         }
         "query" => query::run(&args[1], &args[2..].join(" ")),
         _ => {
-            eprintln!("Unknown mode: {}", mode);
+            eprintln!("Unknown command: {}", cmd);
             std::process::exit(1);
         }
     }
