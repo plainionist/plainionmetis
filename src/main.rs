@@ -59,6 +59,10 @@ fn main() {
                 .unwrap_or(5);
             cluster_mode(&args[2], num_clusters);
         }
+        "chat" => {
+            let config_path = &args[2];
+            chat_mode(config_path);
+        },
         _ => query_mode(&args[1], &args[2..].join(" ")),
     }
 }
@@ -422,5 +426,79 @@ fn cluster_mode(config_file_path: &str, k: usize) {
             println!("•  {}", chunk.file_path);
         }
         println!();
+    }
+}
+
+fn chat_mode(config_path: &str) {
+    println!("💬 Chat mode started. Ask your brain anything. Ctrl+C to quit.\n");
+
+    let config = load_config(config_path);
+    let cache_path = Path::new(&config.config.cache_file);
+    let content_paths = &config.config.content_paths;
+
+    let raw_chunks = collect_markdown_chunks(content_paths, 400);
+
+    let mut cache = if cache_path.exists() {
+        load_cache(&cache_path)
+    } else {
+        HashMap::new()
+    };
+
+    let mut embedded_chunks = vec![];
+
+    for (text, file_path) in raw_chunks {
+        let hash = hash_chunk(&text, &file_path);
+        if let Some(cached) = cache.get(&hash) {
+            embedded_chunks.push(cached.clone());
+        } else if let Some(embedding) = embed_text(&text) {
+            let chunk = Chunk {
+                text: text.clone(),
+                embedding: embedding.clone(),
+                file_path: file_path.clone(),
+            };
+            cache.insert(hash.clone(), chunk.clone());
+            embedded_chunks.push(chunk);
+        }
+    }
+
+    save_cache(&cache_path, &cache);
+
+    use std::io::{self, Write};
+
+    loop {
+        print!("\n❓ You: ");
+        io::stdout().flush().unwrap();
+        let mut question = String::new();
+        if io::stdin().read_line(&mut question).is_err() {
+            break;
+        }
+        let question = question.trim();
+        if question.is_empty() {
+            continue;
+        }
+
+        let q_embedding = embed_text(question);
+        if q_embedding.is_none() {
+            println!("⚠️ Could not embed question.");
+            continue;
+        }
+        let q_embedding = q_embedding.unwrap();
+
+        let top_chunks = find_similar_chunks(&embedded_chunks, &q_embedding, 8);
+        let context = top_chunks
+            .iter()
+            .map(|c| format!("• {}", c.text))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let prompt = format!(
+            "Answer the following question based on my notes below.\n\
+            If not enough info is present, say so.\n\n\
+            Notes:\n{}\n\nQuestion: {}\n\nAnswer:",
+            context, question
+        );
+
+        let response = ask_ollama(&prompt);
+        println!("\n🧠 {}", response.trim());
     }
 }
