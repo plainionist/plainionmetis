@@ -18,8 +18,10 @@ fn main() {
     if args.len() < 3 {
         eprintln!(
             "Usage:\n\
-            plainionmetis <notes-folder> <idea>\n\
-            plainionmetis explore <notes-folder> <topic>"
+            plainionmetis <config-file> <idea>\n\
+            plainionmetis explore <config-file> <topic>\n\
+            plainionmetis cluster <config-file> <num-clusters>\n\
+            plainionmetis chat <config-file>"
         );
         std::process::exit(1);
     }
