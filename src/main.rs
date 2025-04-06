@@ -1,5 +1,4 @@
 use rand::{seq::SliceRandom, thread_rng};
-use reqwest::blocking::Client;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -7,8 +6,11 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::{env, fs};
 use walkdir::WalkDir;
+
 mod config;
 use config::{load_config, Config};
+
+mod ollama;
 
 // prepare:
 // - "ollama pull phi3:mini"
@@ -59,7 +61,7 @@ fn query_mode(config_file_path: &str, idea: &str) {
 
     let embedded_chunks = load_embedded_chunks(&config);
 
-    let query_embedding = embed_text(idea).expect("Failed to embed idea text");
+    let query_embedding = ollama::embed_text(idea).expect("Failed to embed idea text");
 
     let top_chunks = find_similar_chunks(&embedded_chunks, &query_embedding, 5);
 
@@ -79,7 +81,7 @@ fn query_mode(config_file_path: &str, idea: &str) {
         joined
     );
 
-    let result = ask_ollama(&prompt);
+    let result = ollama::ask(&prompt);
     println!("\n🧠 >\n{}", result);
 }
 
@@ -139,25 +141,6 @@ fn chunk_text(text: &str, max_words: usize) -> Vec<String> {
     chunks
 }
 
-fn embed_text(text: &str) -> Option<Vec<f32>> {
-    let client = Client::new();
-    let response = client
-        .post("http://localhost:11434/api/embeddings")
-        .json(&json!({
-            "model": "nomic-embed-text",
-            "prompt": text
-        }))
-        .send()
-        .ok()?;
-
-    let json: serde_json::Value = response.json().ok()?;
-    json["embedding"]
-        .as_array()?
-        .iter()
-        .map(|v| v.as_f64().map(|f| f as f32))
-        .collect()
-}
-
 fn find_similar_chunks(chunks: &[Chunk], query: &[f32], top_n: usize) -> Vec<Chunk> {
     let mut scored: Vec<(f32, &Chunk)> = chunks
         .iter()
@@ -185,26 +168,6 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> Option<f32> {
     Some(dot / (norm_a * norm_b + 1e-8))
 }
 
-fn ask_ollama(prompt: &str) -> String {
-    let client = Client::new();
-
-    let response = client
-        .post("http://localhost:11434/api/generate")
-        .json(&json!({
-            "model": "phi3:mini",
-            "prompt": prompt,
-            "stream": false
-        }))
-        .send()
-        .expect("Failed to send request to Ollama");
-
-    let json: serde_json::Value = response.json().expect("Failed to parse response");
-    json["response"]
-        .as_str()
-        .unwrap_or("[No response]")
-        .to_string()
-}
-
 fn explore_mode(config_file_path: &str, topic: &str) {
     println!("Exploring topic: '{}'", topic);
 
@@ -212,7 +175,7 @@ fn explore_mode(config_file_path: &str, topic: &str) {
 
     let embedded_chunks = load_embedded_chunks(&config);
 
-    let topic_embedding = embed_text(topic).expect("Failed to embed topic");
+    let topic_embedding = ollama::embed_text(topic).expect("Failed to embed topic");
 
     let top_chunks = find_similar_chunks(&embedded_chunks, &topic_embedding, 10);
     println!("Top matching ideas related to '{}':\n", topic);
@@ -232,7 +195,7 @@ fn explore_mode(config_file_path: &str, topic: &str) {
         topic, joined
     );
 
-    let summary = ask_ollama(&prompt);
+    let summary = ollama::ask(&prompt);
     println!("\n🧠 >\n{}", summary);
 }
 
@@ -313,7 +276,7 @@ fn cluster_mode(config_file_path: &str, k: usize) {
             sample
         );
 
-        let label = ask_ollama(&label_prompt);
+        let label = ollama::ask(&label_prompt);
 
         println!(
             "Cluster {} - {}\n{} items",
@@ -346,7 +309,7 @@ fn chat_mode(config_path: &str) {
             continue;
         }
 
-        let q_embedding = embed_text(question);
+        let q_embedding = ollama::embed_text(question);
         if q_embedding.is_none() {
             println!("Could not embed question.");
             continue;
@@ -367,7 +330,7 @@ fn chat_mode(config_path: &str) {
             context, question
         );
 
-        let response = ask_ollama(&prompt);
+        let response = ollama::ask(&prompt);
         println!("\n🧠 {}", response.trim());
     }
 }
@@ -393,7 +356,7 @@ fn load_embedded_chunks(config: &Config) -> Vec<Chunk> {
 
         if let Some(cached) = cache.get(&hash) {
             embedded_chunks.push(cached.clone());
-        } else if let Some(embedding) = embed_text(&text) {
+        } else if let Some(embedding) = ollama::embed_text(&text) {
             let chunk = Chunk {
                 text: text.clone(),
                 embedding: embedding.clone(),
