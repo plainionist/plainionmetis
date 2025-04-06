@@ -3,9 +3,9 @@ use std::io::{self, Write};
 use crate::utils::{chunking, config::Config, ollama, similarity};
 
 pub fn run(config: &Config) {
-    println!("Chat mode started. Ask your brain anything. Ctrl+C to quit.\n");
+    println!("Chat started - Ctrl+C to quit\n");
 
-    let embedded_chunks = chunking::load(&config);
+    let chunks = chunking::load(&config);
 
     loop {
         print!("\nYou: ");
@@ -26,7 +26,7 @@ pub fn run(config: &Config) {
         }
         let q_embedding = q_embedding.unwrap();
 
-        let top_chunks = similarity::find_similar_chunks(&embedded_chunks, &q_embedding, 8);
+        let top_chunks = similarity::find_similar_chunks(&chunks, &q_embedding, 8);
         let context = top_chunks
             .iter()
             .map(|c| format!("• {}", c.text))

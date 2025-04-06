@@ -2,7 +2,7 @@ use std::env;
 
 mod use_cases;
 mod utils;
-use use_cases::{chat, cluster, explore, query};
+use use_cases::{chat, cluster};
 use utils::config;
 
 // prepare:
@@ -16,10 +16,8 @@ fn main() {
     if args.len() < 3 {
         eprintln!(
             "Usage:\n\
-            plainionmetis <config-file> query <idea>\n\
-            plainionmetis <config-file> explore <topic>\n\
-            plainionmetis <config-file> cluster <num-clusters>\n\
-            plainionmetis <config-file> chat"
+            plainionmetis <config-file> chat\n\
+            plainionmetis <config-file> cluster <num-clusters>"
         );
         std::process::exit(1);
     }
@@ -29,7 +27,7 @@ fn main() {
 
     let cmd = &args[2];
     match cmd.as_str() {
-        "explore" => explore::run(&config, &args[3..].join(" ")),
+        "chat" => chat::run(&config),
         "cluster" => {
             let num_clusters = args
                 .get(3)
@@ -37,8 +35,6 @@ fn main() {
                 .unwrap_or(5);
             cluster::run(&config, num_clusters);
         }
-        "chat" => chat::run(&config),
-        "query" => query::run(&config, &args[2..].join(" ")),
         _ => {
             eprintln!("Unknown command: {}", cmd);
             std::process::exit(1);
