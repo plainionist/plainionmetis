@@ -1,31 +1,17 @@
 use rand::{seq::SliceRandom, thread_rng};
-use serde_json::json;
-use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::env;
 use std::io::{self, Write};
-use std::path::Path;
-use std::{env, fs};
-use walkdir::WalkDir;
 
+mod chunking;
 mod config;
-use config::{load_config, Config};
-
 mod ollama;
+use chunking::Chunk;
 
 // prepare:
 // - "ollama pull phi3:mini"
 // - "ollama pull nomic-embed-text"
 // then run "ollama run phi3:mini"
 // then run this program
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct Chunk {
-    embedding: Vec<f32>,
-    text: String,
-    file_path: String,
-}
-
-type Cache = HashMap<String, Chunk>;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -57,9 +43,9 @@ fn main() {
 }
 
 fn query_mode(config_file_path: &str, idea: &str) {
-    let config = load_config(config_file_path); // use config file path now
+    let config = config::load_config(config_file_path); // use config file path now
 
-    let embedded_chunks = load_embedded_chunks(&config);
+    let embedded_chunks = chunking::load_embedded_chunks(&config);
 
     let query_embedding = ollama::embed_text(idea).expect("Failed to embed idea text");
 
@@ -83,62 +69,6 @@ fn query_mode(config_file_path: &str, idea: &str) {
 
     let result = ollama::ask(&prompt);
     println!("\n🧠 >\n{}", result);
-}
-
-fn hash_chunk(text: &str, file_path: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(text.as_bytes());
-    hasher.update(file_path.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
-fn collect_markdown_chunks(paths: &[String], max_words: usize) -> Vec<(String, String)> {
-    let mut chunks = vec![];
-
-    for base_path in paths {
-        for entry in WalkDir::new(base_path)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
-        {
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                let chunked = chunk_text(&content, max_words);
-                let path_str = entry.path().display().to_string();
-                for chunk in chunked {
-                    chunks.push((chunk, path_str.clone()));
-                }
-            }
-        }
-    }
-
-    chunks
-}
-
-fn load_cache(path: &Path) -> Cache {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|data| serde_json::from_str(&data).ok())
-        .unwrap_or_default()
-}
-
-fn save_cache(path: &Path, cache: &Cache) {
-    if let Ok(json) = serde_json::to_string_pretty(cache) {
-        let _ = fs::write(path, json);
-    }
-}
-
-fn chunk_text(text: &str, max_words: usize) -> Vec<String> {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let mut chunks = Vec::new();
-    let mut start = 0;
-
-    while start < words.len() {
-        let end = usize::min(start + max_words, words.len());
-        chunks.push(words[start..end].join(" "));
-        start = end;
-    }
-
-    chunks
 }
 
 fn find_similar_chunks(chunks: &[Chunk], query: &[f32], top_n: usize) -> Vec<Chunk> {
@@ -171,9 +101,9 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> Option<f32> {
 fn explore_mode(config_file_path: &str, topic: &str) {
     println!("Exploring topic: '{}'", topic);
 
-    let config = load_config(config_file_path);
+    let config = config::load_config(config_file_path);
 
-    let embedded_chunks = load_embedded_chunks(&config);
+    let embedded_chunks = chunking::load_embedded_chunks(&config);
 
     let topic_embedding = ollama::embed_text(topic).expect("Failed to embed topic");
 
@@ -202,8 +132,8 @@ fn explore_mode(config_file_path: &str, topic: &str) {
 fn cluster_mode(config_file_path: &str, k: usize) {
     println!("Clustering ideas");
 
-    let config = load_config(config_file_path);
-    let embedded_chunks = load_embedded_chunks(&config);
+    let config = config::load_config(config_file_path);
+    let embedded_chunks = chunking::load_embedded_chunks(&config);
 
     // K-means lite: randomly pick k initial centers
     let mut rng = thread_rng();
@@ -294,8 +224,8 @@ fn cluster_mode(config_file_path: &str, k: usize) {
 fn chat_mode(config_path: &str) {
     println!("Chat mode started. Ask your brain anything. Ctrl+C to quit.\n");
 
-    let config = load_config(config_path);
-    let embedded_chunks = load_embedded_chunks(&config);
+    let config = config::load_config(config_path);
+    let embedded_chunks = chunking::load_embedded_chunks(&config);
 
     loop {
         print!("\nYou: ");
@@ -333,44 +263,4 @@ fn chat_mode(config_path: &str) {
         let response = ollama::ask(&prompt);
         println!("\n🧠 {}", response.trim());
     }
-}
-
-fn load_embedded_chunks(config: &Config) -> Vec<Chunk> {
-    let cache_path = Path::new(&config.config.cache_file);
-    let content_paths = &config.config.content_paths;
-
-    let raw_chunks = collect_markdown_chunks(content_paths, 400);
-
-    println!("Loaded chunks: {}", raw_chunks.len());
-
-    let mut cache: HashMap<String, Chunk> = if cache_path.exists() {
-        load_cache(&cache_path)
-    } else {
-        HashMap::new()
-    };
-
-    let mut embedded_chunks = vec![];
-
-    for (text, file_path) in raw_chunks {
-        let hash = hash_chunk(&text, &file_path);
-
-        if let Some(cached) = cache.get(&hash) {
-            embedded_chunks.push(cached.clone());
-        } else if let Some(embedding) = ollama::embed_text(&text) {
-            let chunk = Chunk {
-                text: text.clone(),
-                embedding: embedding.clone(),
-                file_path: file_path.clone(),
-            };
-
-            cache.insert(hash, chunk.clone());
-            embedded_chunks.push(chunk);
-        }
-    }
-
-    save_cache(&cache_path, &cache);
-
-    println!("Embedded chunks: {}", embedded_chunks.len());
-
-    embedded_chunks
 }
