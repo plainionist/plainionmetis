@@ -7,6 +7,8 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::{env, fs};
 use walkdir::WalkDir;
+mod config;
+use config::{load_config, Config};
 
 // prepare:
 // - "ollama pull phi3:mini"
@@ -21,23 +23,7 @@ struct Chunk {
     file_path: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct Config {
-    config: InnerConfig,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct InnerConfig {
-    cache_file: String,
-    content_paths: Vec<String>,
-}
-
 type Cache = HashMap<String, Chunk>;
-
-fn load_config(path: &str) -> Config {
-    let contents = fs::read_to_string(path).expect("Failed to read config file");
-    toml::from_str(&contents).expect("Failed to parse config file")
-}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
