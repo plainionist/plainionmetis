@@ -11,7 +11,7 @@ pub struct InnerConfig {
     pub content_paths: Vec<String>,
 }
 
-pub fn load_config(path: &str) -> Config {
+pub fn load(path: &str) -> Config {
     let contents = fs::read_to_string(path).expect("Failed to read config file");
     toml::from_str(&contents).expect("Failed to parse config file")
 }

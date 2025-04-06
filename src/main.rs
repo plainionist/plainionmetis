@@ -43,9 +43,9 @@ fn main() {
 }
 
 fn query_mode(config_file_path: &str, idea: &str) {
-    let config = config::load_config(config_file_path); // use config file path now
+    let config = config::load(config_file_path); // use config file path now
 
-    let embedded_chunks = chunking::load_embedded_chunks(&config);
+    let embedded_chunks = chunking::load(&config);
 
     let query_embedding = ollama::embed_text(idea).expect("Failed to embed idea text");
 
@@ -101,9 +101,9 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> Option<f32> {
 fn explore_mode(config_file_path: &str, topic: &str) {
     println!("Exploring topic: '{}'", topic);
 
-    let config = config::load_config(config_file_path);
+    let config = config::load(config_file_path);
 
-    let embedded_chunks = chunking::load_embedded_chunks(&config);
+    let embedded_chunks = chunking::load(&config);
 
     let topic_embedding = ollama::embed_text(topic).expect("Failed to embed topic");
 
@@ -132,8 +132,8 @@ fn explore_mode(config_file_path: &str, topic: &str) {
 fn cluster_mode(config_file_path: &str, k: usize) {
     println!("Clustering ideas");
 
-    let config = config::load_config(config_file_path);
-    let embedded_chunks = chunking::load_embedded_chunks(&config);
+    let config = config::load(config_file_path);
+    let embedded_chunks = chunking::load(&config);
 
     // K-means lite: randomly pick k initial centers
     let mut rng = thread_rng();
@@ -224,8 +224,8 @@ fn cluster_mode(config_file_path: &str, k: usize) {
 fn chat_mode(config_path: &str) {
     println!("Chat mode started. Ask your brain anything. Ctrl+C to quit.\n");
 
-    let config = config::load_config(config_path);
-    let embedded_chunks = chunking::load_embedded_chunks(&config);
+    let config = config::load(config_path);
+    let embedded_chunks = chunking::load(&config);
 
     loop {
         print!("\nYou: ");

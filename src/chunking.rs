@@ -15,7 +15,7 @@ pub struct Chunk {
 
 type Cache = HashMap<String, Chunk>;
 
-pub fn load_embedded_chunks(config: &Config) -> Vec<Chunk> {
+pub fn load(config: &Config) -> Vec<Chunk> {
     let cache_path = Path::new(&config.config.cache_file);
     let content_paths = &config.config.content_paths;
 
