@@ -19,14 +19,9 @@ pub fn run(config: &Config) {
             continue;
         }
 
-        let q_embedding = ollama::embed_text(question);
-        if q_embedding.is_none() {
-            println!("Could not embed question.");
-            continue;
-        }
-        let q_embedding = q_embedding.unwrap();
+        let question_embedding = ollama::embed_text(question).expect("Failed to embed question");
 
-        let top_chunks = similarity::find_similar_chunks(&chunks, &q_embedding, 8);
+        let top_chunks = similarity::find_similar_chunks(&chunks, &question_embedding, 8);
         let context = top_chunks
             .iter()
             .map(|c| format!("• {}", c.text))
@@ -35,8 +30,8 @@ pub fn run(config: &Config) {
 
         let prompt = format!(
             "Answer the following question based on my notes below.\n\
-        If not enough info is present, say so.\n\n\
-        Notes:\n{}\n\nQuestion: {}\n\nAnswer:",
+            If not enough info is present, say so.\n\n\
+            Notes:\n{}\n\nQuestion: {}\n\nAnswer:",
             context, question
         );
 
