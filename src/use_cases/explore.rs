@@ -1,10 +1,8 @@
 
-use crate::utils::{chunking, config, ollama, similarity};
+use crate::utils::{chunking, config::Config, ollama, similarity};
 
-pub fn run(config_file_path: &str, topic: &str) {
+pub fn run(config: &Config, topic: &str) {
     println!("Exploring topic: '{}'", topic);
-
-    let config = config::load(config_file_path);
 
     let embedded_chunks = chunking::load(&config);
 

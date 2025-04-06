@@ -1,11 +1,10 @@
 use rand::{seq::SliceRandom, thread_rng};
 
-use crate::utils::{chunking, chunking::Chunk, config, ollama, similarity};
+use crate::utils::{chunking, chunking::Chunk, config::Config, ollama, similarity};
 
-pub fn run(config_file_path: &str, k: usize) {
+pub fn run(config: &Config, k: usize) {
     println!("Clustering ideas");
 
-    let config = config::load(config_file_path);
     let embedded_chunks = chunking::load(&config);
 
     // K-means lite: randomly pick k initial centers

@@ -1,8 +1,6 @@
-use crate::utils::{chunking, config, ollama, similarity};
+use crate::utils::{chunking, config::Config, ollama, similarity};
 
-pub fn run(config_file_path: &str, idea: &str) {
-    let config = config::load(config_file_path);
-
+pub fn run(config: &Config, idea: &str) {
     let embedded_chunks = chunking::load(&config);
 
     let query_embedding = ollama::embed_text(idea).expect("Failed to embed idea text");

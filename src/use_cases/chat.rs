@@ -1,11 +1,10 @@
 use std::io::{self, Write};
 
-use crate::utils::{chunking, config, ollama, similarity};
+use crate::utils::{chunking, config::Config, ollama, similarity};
 
-pub fn run(config_path: &str) {
+pub fn run(config: &Config) {
     println!("Chat mode started. Ask your brain anything. Ctrl+C to quit.\n");
 
-    let config = config::load(config_path);
     let embedded_chunks = chunking::load(&config);
 
     loop {
