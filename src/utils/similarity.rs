@@ -1,4 +1,4 @@
-use crate::chunking::Chunk;
+use crate::utils::chunking::Chunk;
 
 pub fn find_similar_chunks(chunks: &[Chunk], query: &[f32], top_n: usize) -> Vec<Chunk> {
     let mut scored: Vec<(f32, &Chunk)> = chunks

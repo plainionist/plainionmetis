@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::fs;
 use walkdir::WalkDir;
-use crate::config::Config;
-use crate::ollama;
+use crate::utils::{config::Config, ollama};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Chunk {

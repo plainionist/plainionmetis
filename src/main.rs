@@ -1,7 +1,6 @@
 use std::env;
 
 mod utils;
-use utils::{chunking, config, ollama};
 mod use_cases;
 use use_cases::{chat, cluster, explore, query};
 
